@@ -5207,6 +5207,24 @@ out_unlock:
 }
 
 /*
+ * Require architecture to initialize resource with legacy control mode
+ * active.
+ */
+static int resctrl_check_alloc_ctrl_mode(void)
+{
+	struct rdt_resource *r;
+
+	for_each_alloc_capable_rdt_resource(r) {
+		if (r->ctrl_mode != RESCTRL_CTRL_MODE_LEGACY) {
+			pr_warn("%s is not in default legacy mode\n", r->name);
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
+/*
  * resctrl_init - resctrl filesystem initialization
  *
  * Setup resctrl file system including set up root, create mount point,
@@ -5226,6 +5244,10 @@ int resctrl_init(void)
 	thread_throttle_mode_init();
 
 	io_alloc_init();
+
+	ret = resctrl_check_alloc_ctrl_mode();
+	if (ret)
+		return ret;
 
 	ret = resctrl_l3_mon_resource_init();
 	if (ret)

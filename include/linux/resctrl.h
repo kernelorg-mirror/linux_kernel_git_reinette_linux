@@ -399,6 +399,13 @@ enum resctrl_ctrl_name {
  * @bitmap:	Bitmap control properties. Used by cache allocation.
  * @scalar:	Scalar control properties. Valid when @type == RESCTRL_CTRL_SCALAR.
  *		Used by memory bandwidth allocation.
+ * @emulated_by:List of controls that emulate this control. When set the containing
+ *		struct resctrl_ctrl is likely a legacy control and @emulated_by
+ *		are the finer grained hardware controls used to back the legacy
+ *		control. This emulation is hidden from user in schemata file when
+ *		rdt_resource::ctrl_mode is RESCTRL_CTRL_MODE_LEGACY and
+ *		exposed when rdt_resource::ctrl_mode is
+ *		RESCTRL_CTRL_MODE_NATIVE.
  */
 struct resctrl_ctrl {
 	struct list_head	entry;
@@ -409,6 +416,48 @@ struct resctrl_ctrl {
 		struct resctrl_ctrl_bitmap	bitmap;
 		struct resctrl_ctrl_scalar	scalar;
 	};
+	struct list_head	emulated_by;
+};
+
+/**
+ * enum resctrl_ctrl_mode: Specifies which controls are enabled from user perspective.
+ * @RESCTRL_CTRL_MODE_LEGACY:	All controls in outer control list,
+ *				rdt_resource::controls, are enabled.
+ *				No control found in an inner control list,
+ *				resctrl_ctrl::emulated_by, is enabled.
+ * @RESCTRL_CTRL_MODE_NATIVE:	If a control in outer control list,
+ *				rdt_resource::controls, is emulated then it
+ *				is disabled and all the controls in its
+ *				resctrl_ctrl::emulated_by are enabled instead.
+ *				If a control in outer control list
+ *				rdt_resource::controls is not emulated then
+ *				it is enabled.
+ *
+ * - An "enabled" control appears in the schemata file and accepts control
+ *   values from user space.
+ * - All controls are always displayed in the associated resource's
+ *   info/<resource>/schemata/ directory.
+ *
+ * Implementation note: The "enabled" state of a control should not be exposed
+ * to user space since some architectures may have separate underlying hardware
+ * controls for the legacy control(s) and the finer grained control(s) that
+ * could potentially emulate the legacy control. When such a "legacy" control
+ * is "enabled" on these systems the actual legacy hardware interface is used
+ * instead of the, potentially finer grained, controls it could also be
+ * emulated with.
+ *
+ * Switching the mode enables resctrl to maintain backward compatibility by
+ * providing support for legacy controls while enabling user space to interact
+ * directly with finer grained controls used to emulate the legacy interface(s).
+ *
+ * Switching between different control modes aims to not be destructive
+ * but this is not guaranteed. Implementations as mentioned in above
+ * "Implementation note" may not have supported mappings from legacy
+ * control to control that it can be emulated with.
+ */
+enum resctrl_ctrl_mode {
+	RESCTRL_CTRL_MODE_LEGACY,
+	RESCTRL_CTRL_MODE_NATIVE
 };
 
 /**
@@ -426,6 +475,8 @@ struct resctrl_ctrl {
  *			different memory bandwidths
  * @cache_io_alloc_capable:True if portion of the cache can be configured
  *			   for I/O traffic.
+ * @ctrl_mode:		Which controls accept control values from user
+ *			space.
  * @controls:		List of controls of an alloc_capable resource
  */
 struct rdt_resource {
@@ -440,6 +491,7 @@ struct rdt_resource {
 	bool				cdp_capable;
 	enum membw_throttle_mode	bw_throttle_mode;
 	bool				cache_io_alloc_capable;
+	enum resctrl_ctrl_mode		ctrl_mode;
 	struct list_head		controls;
 };
 
