@@ -332,7 +332,7 @@ struct resctrl_ctrl *resctrl_resource_ctrl_get_default(struct rdt_resource *r)
 {
 	struct resctrl_ctrl *ctrl;
 
-	if (list_empty(&r->controls))
+	if (list_empty(&r->controls) || r->ctrl_mode != RESCTRL_CTRL_MODE_LEGACY)
 		return NULL;
 
 	for_each_resource_ctrl(ctrl, r) {
