@@ -1016,6 +1016,75 @@ static int rdt_num_closids_show(struct kernfs_open_file *of,
 	return 0;
 }
 
+static int resctrl_control_mode_show(struct kernfs_open_file *of,
+				     struct seq_file *seq, void *v)
+{
+	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
+
+	if (!info_kn_lock(of->kn))
+		return -ENOENT;
+	if (f->res->ctrl_mode == RESCTRL_CTRL_MODE_LEGACY)
+		seq_puts(seq, "[legacy] native\n");
+	else
+		seq_puts(seq, "legacy [native]\n");
+	info_kn_unlock(of->kn);
+
+	return 0;
+}
+
+static ssize_t resctrl_control_mode_write(struct kernfs_open_file *of,
+					  char *buf, size_t nbytes, loff_t off)
+{
+	struct rdt_resource_final *f = rdt_kn_parent_priv(of->kn);
+	enum resctrl_ctrl_mode newmode;
+	int ret = 0;
+
+	if (!info_kn_lock(of->kn))
+		return -ENOENT;
+
+	rdt_last_cmd_clear();
+
+	/* Valid input requires a trailing newline */
+	if (nbytes == 0 || buf[nbytes - 1] != '\n') {
+		rdt_last_cmd_puts("control_mode: Invalid input\n");
+		ret = -EINVAL;
+		goto out_unlock;
+	}
+
+	buf[nbytes - 1] = '\0';
+
+	if (f->res->rid != RDT_RESOURCE_MBA || is_mba_sc(f->res, NULL)) {
+		rdt_last_cmd_puts("Changing control mode not supported for this resource.\n");
+		ret = -EINVAL;
+		goto out_unlock;
+	}
+
+	if (!strcmp(buf, "legacy")) {
+		newmode = RESCTRL_CTRL_MODE_LEGACY;
+	} else if (!strcmp(buf, "native")) {
+		newmode = RESCTRL_CTRL_MODE_NATIVE;
+	} else {
+		ret = -EINVAL;
+		rdt_last_cmd_puts("Unsupported control mode\n");
+		goto out_unlock;
+	}
+
+	if (f->res->ctrl_mode != newmode) {
+		ret = resctrl_arch_control_mode_set(f->res, newmode);
+		if (ret < 0) {
+			rdt_last_cmd_printf("Unable to switch control mode to %s\n",
+					    newmode == RESCTRL_CTRL_MODE_LEGACY ? "legacy" : "native");
+			goto out_unlock;
+		}
+		f->res->ctrl_mode = newmode;
+	}
+
+out_unlock:
+	info_kn_unlock(of->kn);
+
+	return ret ?: nbytes;
+}
+
 static int rdt_default_ctrl_show(struct kernfs_open_file *of,
 				 struct seq_file *seq, void *v)
 {
@@ -2086,6 +2155,14 @@ static struct rftype res_common_files[] = {
 		.mode		= 0444,
 		.kf_ops		= &rdtgroup_kf_single_ops,
 		.seq_show	= rdt_num_closids_show,
+		.fflags		= RFTYPE_CTRL_INFO,
+	},
+	{
+		.name		= "control_mode",
+		.mode		= 0644,
+		.kf_ops		= &rdtgroup_kf_single_ops,
+		.seq_show	= resctrl_control_mode_show,
+		.write		= resctrl_control_mode_write,
 		.fflags		= RFTYPE_CTRL_INFO,
 	},
 	{
