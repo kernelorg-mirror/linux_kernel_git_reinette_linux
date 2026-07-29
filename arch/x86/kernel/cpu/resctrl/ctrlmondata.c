@@ -154,3 +154,14 @@ int resctrl_arch_io_alloc_enable(struct rdt_resource *r, struct resctrl_ctrl *ct
 
 	return 0;
 }
+
+int resctrl_arch_control_mode_set(struct rdt_resource *r,
+				  enum resctrl_ctrl_mode newmode)
+{
+	/*
+	 * FIXME: Remove debug
+	 */
+	pr_debug("x86 control mode change helper setting mode to %s\n",
+		newmode == RESCTRL_CTRL_MODE_LEGACY ? "legacy" : "native");
+	return 0;
+}

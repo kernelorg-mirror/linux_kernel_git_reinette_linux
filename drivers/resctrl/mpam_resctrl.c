@@ -176,6 +176,12 @@ u32 resctrl_arch_preconvert_bw(const struct rdt_resource *r, struct resctrl_ctrl
 	return val;
 }
 
+
+int resctrl_arch_control_mode_set(struct rdt_resource *r, enum resctrl_ctrl_mode newmode)
+{
+	return 0;
+}
+
 /**
  * resctrl_reset_task_closids() - Reset the PARTID/PMG values for all tasks.
  *
