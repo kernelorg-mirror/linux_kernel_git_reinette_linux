@@ -2951,8 +2951,8 @@ static struct kernfs_node *resctrl_mkdir_ctrl(struct kernfs_node *parent,
 static int resctrl_mkdir_schemata_dir(struct kernfs_node *kn,
 				      struct rdt_resource_final *f)
 {
-	struct kernfs_node *kn_subdir, *kn_ctrl;
-	struct resctrl_ctrl *ctrl;
+	struct kernfs_node *kn_subdir, *kn_ctrl, *kn_emctrl;
+	struct resctrl_ctrl *ctrl, *emulating_ctrl;
 	int ret;
 
 	kn_subdir = kernfs_create_dir(kn, "schemata", kn->mode, NULL);
@@ -2967,6 +2967,15 @@ static int resctrl_mkdir_schemata_dir(struct kernfs_node *kn,
 		kn_ctrl = resctrl_mkdir_ctrl(kn_subdir, f, ctrl);
 		if (IS_ERR(kn_ctrl))
 			return PTR_ERR(kn_ctrl);
+
+		if (list_empty(&ctrl->emulated_by))
+			continue;
+
+		list_for_each_entry(emulating_ctrl, &ctrl->emulated_by, entry) {
+			kn_emctrl = resctrl_mkdir_ctrl(kn_ctrl, f, emulating_ctrl);
+			if (IS_ERR(kn_emctrl))
+				return PTR_ERR(kn_emctrl);
+		}
 	}
 
 	kernfs_activate(kn_subdir);
