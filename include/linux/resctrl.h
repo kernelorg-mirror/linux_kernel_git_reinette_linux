@@ -534,6 +534,27 @@ struct resctrl_mon_config_info {
 	u32				mon_config;
 };
 
+
+/**
+ * resctrl_arch_control_mode_set() - Change control mode between legacy and native
+ * @r		: Resource owning the controls.
+ * @newmode	: New control type mode.
+ *
+ * Make any hardware adjustments needed to support a new control mode.
+ * Useful if the hardware self has different interfaces for the legacy and
+ * emulated controls.
+ *
+ * Architecture should aim to keep the control values used by legacy and its
+ * emulating controls in sync and always accessible via resctrl_arch_get_config().
+ * Doing so supports a non-destructive switch of control mode.
+ *
+ * Return:
+ * 0 on success or if architecture does not require changes when the
+ * control mode is switched, < 0 on error.
+ */
+int resctrl_arch_control_mode_set(struct rdt_resource *r,
+				  enum resctrl_ctrl_mode newmode);
+
 /**
  * resctrl_arch_sync_cpu_closid_rmid() - Refresh this CPU's CLOSID and RMID.
  *					 Call via IPI.
