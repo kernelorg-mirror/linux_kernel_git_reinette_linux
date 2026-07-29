@@ -2909,6 +2909,42 @@ static unsigned long fflags_from_resource(struct rdt_resource *r)
 }
 
 /*
+ * Create hierarchy of a single control @ctrl belonging to resource @f
+ * under @parent.
+ * No need to cleanup on exit - caller calls the recursive kernfs_remove()
+ * on failure.
+ */
+static struct kernfs_node *resctrl_mkdir_ctrl(struct kernfs_node *parent,
+			      struct rdt_resource_final *f,
+			      struct resctrl_ctrl *ctrl)
+{
+	struct kernfs_node *kn_ctrl;
+	char ctrl_full_name[20];
+	int ret;
+
+	ret = snprintf(ctrl_full_name, sizeof(ctrl_full_name), "%s%s%s",
+		       f->name, resctrl_ctrl_is_default(ctrl) ? "" : "_",
+		       resctrl_ctrl_is_default(ctrl) ? "" : resctrl_ctrl_name_str(ctrl->name));
+	if (ret >= sizeof(ctrl_full_name))
+		return ERR_PTR(-ENOSPC);
+
+	kn_ctrl = kernfs_create_dir(parent, ctrl_full_name, parent->mode,
+				    ctrl);
+	if (IS_ERR(kn_ctrl))
+		return kn_ctrl;
+
+	ret = rdtgroup_kn_set_ugid(kn_ctrl);
+	if (ret)
+		return ERR_PTR(ret);
+
+	ret = resctrl_add_ctrl_files(kn_ctrl, ctrl);
+	if (ret)
+		return ERR_PTR(ret);
+
+	return kn_ctrl;
+}
+
+/*
  * No need to cleanup on exit - caller calls the recursive kernfs_remove()
  * on failure.
  */
@@ -2917,7 +2953,6 @@ static int resctrl_mkdir_schemata_dir(struct kernfs_node *kn,
 {
 	struct kernfs_node *kn_subdir, *kn_ctrl;
 	struct resctrl_ctrl *ctrl;
-	char ctrl_full_name[20];
 	int ret;
 
 	kn_subdir = kernfs_create_dir(kn, "schemata", kn->mode, NULL);
@@ -2929,24 +2964,9 @@ static int resctrl_mkdir_schemata_dir(struct kernfs_node *kn,
 		return ret;
 
 	for_each_resource_ctrl(ctrl, f->res) {
-		ret = snprintf(ctrl_full_name, sizeof(ctrl_full_name), "%s%s%s",
-			       f->name, resctrl_ctrl_is_default(ctrl) ? "" : "_",
-			       resctrl_ctrl_is_default(ctrl) ? "" : resctrl_ctrl_name_str(ctrl->name));
-		if (ret >= sizeof(ctrl_full_name))
-			return -ENOSPC;
-
-		kn_ctrl = kernfs_create_dir(kn_subdir, ctrl_full_name, kn_subdir->mode,
-					    ctrl);
+		kn_ctrl = resctrl_mkdir_ctrl(kn_subdir, f, ctrl);
 		if (IS_ERR(kn_ctrl))
 			return PTR_ERR(kn_ctrl);
-
-		ret = rdtgroup_kn_set_ugid(kn_subdir);
-		if (ret)
-			return ret;
-
-		ret = resctrl_add_ctrl_files(kn_ctrl, ctrl);
-		if (ret)
-			return ret;
 	}
 
 	kernfs_activate(kn_subdir);
