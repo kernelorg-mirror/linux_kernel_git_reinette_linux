@@ -443,7 +443,7 @@ static struct resctrl_ctrl *resctrl_resource_ctrl_get(struct rdt_resource *r,
 {
 	struct resctrl_ctrl *ctrl;
 
-	for_each_resource_ctrl(ctrl, r) {
+	for_each_enabled_ctrl(ctrl, r) {
 		if (!ctrlname && ctrl->name == RESCTRL_CTRL_NAME_DEF)
 			return ctrl;
 
@@ -635,7 +635,7 @@ int rdtgroup_schemata_show(struct kernfs_open_file *of,
 
 	if (rdtgrp->mode == RDT_MODE_PSEUDO_LOCKSETUP) {
 		list_for_each_entry(f, &rdt_resource_final_all, list) {
-			for_each_resource_ctrl(ctrl, f->res)
+			for_each_enabled_ctrl(ctrl, f->res)
 				seq_printf(s, "%s%s%s:uninitialized\n", f->name,
 					   resctrl_ctrl_is_default(ctrl) ? "" : "_",
 					   resctrl_ctrl_is_default(ctrl) ?
@@ -656,7 +656,7 @@ int rdtgroup_schemata_show(struct kernfs_open_file *of,
 		list_for_each_entry(f, &rdt_resource_final_all, list) {
 			if (closid >= f->num_closid)
 				continue;
-			for_each_resource_ctrl(ctrl, f->res)
+			for_each_enabled_ctrl(ctrl, f->res)
 				show_doms(s, f, true, closid, ctrl);
 		}
 	}
