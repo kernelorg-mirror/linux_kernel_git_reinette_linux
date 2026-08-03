@@ -111,8 +111,8 @@ void rdt_last_cmd_printf(const char *fmt, ...)
 
 void rdt_staged_configs_clear(void)
 {
+	struct resctrl_ctrl *ctrl, *em_ctrl;
 	struct rdt_ctrl_domain *dom;
-	struct resctrl_ctrl *ctrl;
 	struct rdt_resource *r;
 
 	lockdep_assert_held(&rdtgroup_mutex);
@@ -121,6 +121,12 @@ void rdt_staged_configs_clear(void)
 		for_each_resource_ctrl(ctrl, r) {
 			list_for_each_entry_rcu(dom, &ctrl->domains, hdr.list, lockdep_is_cpus_held())
 				memset(dom->staged_config, 0, sizeof(dom->staged_config));
+			if (list_empty(&ctrl->emulated_by))
+				continue;
+			list_for_each_entry(em_ctrl, &ctrl->emulated_by, entry) {
+				list_for_each_entry_rcu(dom, &ctrl->domains, hdr.list, lockdep_is_cpus_held())
+					memset(dom->staged_config, 0, sizeof(dom->staged_config));
+			}
 		}
 	}
 }
@@ -1842,7 +1848,7 @@ static int rdtgroup_size_show(struct kernfs_open_file *of,
 	list_for_each_entry(f, &rdt_resource_final_all, list) {
 		r = f->res;
 		type = f->conf_type;
-		for_each_resource_ctrl(ctrl, r) {
+		for_each_enabled_ctrl(ctrl, r) {
 			sep = false;
 			if (resctrl_ctrl_is_default(ctrl)) {
 				seq_printf(s, "%*s:", max_name_width, f->name);
@@ -4371,7 +4377,7 @@ static int rdtgroup_init_alloc(struct rdtgroup *rdtgrp)
 
 	list_for_each_entry(f, &rdt_resource_final_all, list) {
 		r = f->res;
-		for_each_resource_ctrl(ctrl, r) {
+		for_each_enabled_ctrl(ctrl, r) {
 			if (r->rid == RDT_RESOURCE_MBA ||
 			    r->rid == RDT_RESOURCE_SMBA) {
 				rdtgroup_init_mba(r, ctrl, rdtgrp->closid);
