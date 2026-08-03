@@ -73,11 +73,15 @@ struct msr_param {
  * @r_ctrl:	Control properties exposed to resctrl file system
  * @msr_base:	Base MSR address where control values should be programmed
  * @msr_update:	Function pointer to update control values
+ * @emulate_val:Function pointer to return control value matching the
+ *		provided legacy control value. Set if this is a control
+ *		used to emulate a legacy control.
  */
 struct resctrl_hw_ctrl {
 	struct resctrl_ctrl	r_ctrl;
 	unsigned int		msr_base;
 	void			(*msr_update)(struct msr_param *m);
+	u32			(*emulate_val)(u32 legacy_val);
 };
 
 static inline struct resctrl_hw_ctrl *resctrl_to_arch_ctrl(struct resctrl_ctrl *c)
