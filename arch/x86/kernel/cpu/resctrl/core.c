@@ -524,12 +524,15 @@ static int domain_setup_ctrlval(struct rdt_resource *r, struct resctrl_ctrl *ctr
 	hw_dom->ctrl_val = dc;
 	setup_default_ctrlval(r, ctrl, dc);
 
-	m.res = r;
-	m.ctrl = ctrl;
-	m.dom = d;
-	m.low = 0;
-	m.high = hw_res->num_closid;
-	hw_ctrl->msr_update(&m);
+	/* Only update underlying hardware if control is not emulated. */
+	if (hw_ctrl->msr_update) {
+		m.res = r;
+		m.ctrl = ctrl;
+		m.dom = d;
+		m.low = 0;
+		m.high = hw_res->num_closid;
+		hw_ctrl->msr_update(&m);
+	}
 	return 0;
 }
 
@@ -715,11 +718,16 @@ static void domain_add_cpu_mon(int cpu, struct rdt_resource *r)
 
 static void domain_add_cpu(int cpu, struct rdt_resource *r)
 {
-	struct resctrl_ctrl *ctrl;
+	struct resctrl_ctrl *ctrl, *em_ctrl;;
 
 	if (r->alloc_capable) {
-		for_each_resource_ctrl(ctrl, r)
+		for_each_resource_ctrl(ctrl, r) {
 			domain_add_cpu_ctrl(cpu, r, ctrl);
+			if (list_empty(&ctrl->emulated_by))
+				continue;
+			list_for_each_entry(em_ctrl, &ctrl->emulated_by, entry)
+				domain_add_cpu_ctrl(cpu, r, em_ctrl);
+		}
 	}
 	if (r->mon_capable)
 		domain_add_cpu_mon(cpu, r);
@@ -832,11 +840,16 @@ static void domain_remove_cpu_mon(int cpu, struct rdt_resource *r)
 
 static void domain_remove_cpu(int cpu, struct rdt_resource *r)
 {
-	struct resctrl_ctrl *ctrl;
+	struct resctrl_ctrl *ctrl, *em_ctrl;
 
 	if (r->alloc_capable) {
-		for_each_resource_ctrl(ctrl, r)
+		for_each_resource_ctrl(ctrl, r) {
 			domain_remove_cpu_ctrl(cpu, r, ctrl);
+			if (list_empty(&ctrl->emulated_by))
+				continue;
+			list_for_each_entry(em_ctrl, &ctrl->emulated_by, entry)
+				domain_remove_cpu_ctrl(cpu, r, em_ctrl);
+		}
 	}
 	if (r->mon_capable)
 		domain_remove_cpu_mon(cpu, r);
