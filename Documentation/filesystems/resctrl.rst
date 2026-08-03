@@ -228,6 +228,10 @@ related to allocation:
 		written to /sys/fs/resctrl/info/L3DATA/io_alloc_cbm may be reflected by
 		/sys/fs/resctrl/info/L3CODE/io_alloc_cbm and vice versa.
 
+"control_mode":
+		Specifies which resource controls are exposed via the
+		schemata file. See "Resource controls".
+
 Memory bandwidth(MB) subdirectory contains the following files
 with respect to allocation:
 
@@ -258,6 +262,187 @@ with respect to allocation:
 		"per-thread":
 			bandwidth percentages are directly applied to
 			the threads running on the core
+
+"control_mode":
+		Specifies which resource controls are exposed via the
+		schemata file. See "Resource controls".
+
+Resource controls
+-----------------
+Hardware may support multiple controls that can be used to allocate
+portions of a resource or provide per-resource group control over different
+aspects of resource allocation.
+
+Hardware may not have the legacy resource allocation controls but instead
+back the legacy controls with its finer grained controls. These finer grained
+controls should be accessible to the user to take advantage of its improved
+capabilities.
+
+The controls supported by the underlying hardware can be found in the
+resource's info/<resource>/schemata directory. The directory name is the
+name of the control and the files within the directory describes the control's
+properties. The name of the control is used in the "schemata" where user space
+can view and modify control settings or portions allocated to the control group
+as the control's properties allow.
+
+For example, below shows MB, MB_MIN, and MB_MAX as controls for the "MB" resource.
+
+	 info/
+	 └─ MB/
+	    └─ schemata/
+	       ├─ MB/
+	       ├─ MB_MIN/
+	       ├─ MB_MAX/
+	       ┆
+
+Below example shows hardware that uses a finer grained control named "MB_MAX"
+to back the legacy "MB" control. By default the legacy control is exposed via
+"schemata" file, user space can interact with the "MB_MAX" control backing the
+legacy "MB" control by switching the control mode. See "Resource control mode".
+
+	 info/
+	 └─ MB/
+	    └─ schemata/
+	       ├─ MB/
+	       ┆   └─MB_MAX/
+	       ├─ MB_MIN/
+	       ┆
+
+
+Resource control mode
+~~~~~~~~~~~~~~~~~~~~~
+
+A resource needing to maintain a legacy interface, for example the "MB"
+resource, may have one or more finer grained controls that are used to back
+the legacy interface.
+
+Consider below example where the legacy "MB" interface is backed by the finer
+grained "MB_MAX" and "MB_MIN" controls:
+
+	 info/
+	 └─ MB/
+	    └─ schemata/
+	       └─ MB/
+	          ├─ MB_MIN/
+	          └─ MB_MAX/
+
+By default only the "MB" control is shown in the schemata files of control
+groups. User space can provide the legacy control values to the "MB"
+control while the MB_MIN and MB_MAX controls are programmed to do the
+actual resource allocation. This is "legacy" control mode and exposed via
+the resource's "control_mode" file::
+
+		# cat /sys/fs/resctrl/info/MB/control_mode
+		[legacy] native
+		# cat /sys/fs/resctrl/schemata
+		MB:0=100;1=100
+
+If user space is familar with the finer grained controls then the legacy
+interface can be disabled that will let the backing controls appear in the
+schemata file::
+
+		# echo "native" > /sys/fs/resctrl/info/MB/control_mode
+		# cat /sys/fs/resctrl/info/MB/control_mode
+		legacy [native]
+		# cat /sys/fs/resctrl/schemata
+		MB_MIN:0=1;1=1
+		MB_MAX:0=1000;1=1000
+
+Resource control properties
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Every control directory contains a file named "type" that specifies which
+other property files a user space may expect in the same directory. The current
+supported control types are:
+                * "scalar": A single-valued numeric control
+                * "bitmap": A bitmap control
+
+The following properties that are exposed
+with individual files:
+
+"type":
+	When "type" == "scalar":
+		Contains "scalar" as well as optional flag specifiers that
+		indicate how the control value written to the schemata file
+		is converted to an amount of resource for hardware regulation.
+
+		Possible flags are:
+		"linear": The control values provide a linear mapping.
+
+		The properties associated with the "scalar" control relate
+		to the control value "C" written to schemata file by user space
+		as follows:
+		* min <= C <= max
+		* resource allocation = C * scale / resolution * unit
+		* effective resource allocation is within ±tolerance
+
+	When "type" == "bitmap":
+		Contains "bitmap" as  as well as optional flag specifiers that
+		indicate how the control value written to the schemata file
+		is converted to an amount of resource for hardware regulation.
+
+		Each bit controls access to a specific chunk of resource in
+		the hardware, such as a group of cache lines. All chunks are
+		equally sized.
+
+		Possible flags are:
+		"sparse": Present if the control accepts sparse bitmaps.
+
+		The properties associated with the "bitmap" control are:
+		* min_bits
+		* max
+
+"min:
+	When "type" == "scalar":
+		The minimum value that can be written to the control when writing
+		the schemata file.
+
+"max":
+	When "type" == "scalar":
+		The maximum value that can be written to the control when writing
+		the schemata file.
+
+	When "type" == "bitmap":
+		The supported bitmap (in hexadecimal with 0x prefix) with
+		all bits set.
+
+"tolerance":
+	When "type" == "scalar":
+		The effective control value is within ±tolerance of the control
+		value written to the schemata file.
+
+"resolution":
+	When "type" == "scalar":
+		For a proportional scalar schema: the number of divisions that
+		the whole resource is divided into. Typically, this will be the same as
+		the "max" value.
+
+		For an absolute scalar schema: the divisor applied to the control value.
+
+"scale":
+	When "type" == "scalar":
+		The scale-up multiplier applied to "unit".
+
+"unit":
+	When "type" == "scalar":
+		The base unit of the quantity measured by the control value.
+
+		The special unit "all" denotes a proportional schema.  In this
+		case, the resource is a finite, physical thing such as a cache
+		or maxed-out data throughput of a memory controller.  The
+		entire physical resource is available for allocation, and the
+		control value indicates what proportion of it is allocated.
+
+		Absolute schemata specifies the base unit, for example, "MBps".
+		The "scale" parameter could be used to avoid proliferation of
+		unit strings:
+
+		For example, {scale=1000, unit="MBps"} would be equivalent to
+		{scale=1, unit="GBps"}.
+
+"min_bits":
+	When "type" == "bitmap":
+		The minimum number of consecutive bits returned in decimal.
+
 
 If L3 monitoring is available there will be an "L3_MON" directory
 with the following files:
