@@ -63,6 +63,61 @@ static struct resctrl_ctrl_priv resctrl_ctrl_priv_all[] = {
 };
 
 /*
+ * Iterator finding enabled controls.
+ * Dynamically traverses controls based on active control mode.
+ */
+struct resctrl_ctrl *
+resctrl_enabled_ctrl_iter_next(struct resctrl_ctrl_iter *iter, struct rdt_resource *r)
+{
+	struct resctrl_ctrl *ret;
+
+	while (iter->legacy_ctrl) {
+		/*
+		 * If resource is in legacy mode, OR if this control has no
+		 * emulating children, just yield the top-level control and move on.
+		 */
+		if (r->ctrl_mode == RESCTRL_CTRL_MODE_LEGACY ||
+		    list_empty(&iter->legacy_ctrl->emulated_by)) {
+
+			ret = iter->legacy_ctrl;
+
+			/* Advance the top-level control */
+			if (list_is_last(&iter->legacy_ctrl->entry, &r->controls))
+				iter->legacy_ctrl = NULL;
+			else
+				iter->legacy_ctrl = list_next_entry(iter->legacy_ctrl, entry);
+
+			return ret;
+		}
+
+		/*
+		 * Resource is in native mode AND there are child controls.
+		 * Traverse the emulated_by list.
+		 */
+		if (!iter->emulating_ctrl) {
+			iter->emulating_ctrl = list_first_entry(&iter->legacy_ctrl->emulated_by,
+								struct resctrl_ctrl, entry);
+			return iter->emulating_ctrl;
+		}
+
+		if (!list_is_last(&iter->emulating_ctrl->entry, &iter->legacy_ctrl->emulated_by)) {
+
+			iter->emulating_ctrl = list_next_entry(iter->emulating_ctrl, entry);
+			return iter->emulating_ctrl;
+		}
+
+		/* Sub-list exhausted: clean up and advance the top-level control */
+		iter->emulating_ctrl = NULL;
+		if (list_is_last(&iter->legacy_ctrl->entry, &r->controls))
+			iter->legacy_ctrl = NULL;
+		else
+			iter->legacy_ctrl = list_next_entry(iter->legacy_ctrl, entry);
+	}
+
+	return NULL;
+}
+
+/*
  * Check whether MBA bandwidth percentage value is correct. The value is
  * checked against the minimum and max bandwidth values specified by the
  * hardware. The allocated bandwidth percentage is converted as appropriate
