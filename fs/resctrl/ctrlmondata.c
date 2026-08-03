@@ -460,14 +460,22 @@ static struct resctrl_ctrl *resctrl_resource_ctrl_get(struct rdt_resource *r,
  */
 size_t resctrl_resource_ctrl_max_len(struct rdt_resource *r)
 {
-	struct resctrl_ctrl *ctrl;
+	struct resctrl_ctrl *ctrl, *em_ctrl;
 	size_t total = 0;
 	size_t len;
 
 	for_each_resource_ctrl(ctrl,r) {
+		/* Remove duplicate code. */
 		len = strlen(resctrl_ctrl_name_str(ctrl->name));
 		if (len)
 			total = max(total, 1 + len);
+		if (list_empty(&ctrl->emulated_by))
+			continue;
+		list_for_each_entry(em_ctrl, &ctrl->emulated_by, entry) {
+			len = strlen(resctrl_ctrl_name_str(em_ctrl->name));
+			if (len)
+				total = max(total, 1 + len);
+		}
 	}
 
 	return total;
