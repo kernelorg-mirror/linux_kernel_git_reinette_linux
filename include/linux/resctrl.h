@@ -51,6 +51,27 @@ int proc_resctrl_show(struct seq_file *m,
 #define for_each_resource_ctrl(ctrl, r)					\
 	list_for_each_entry(ctrl, &r->controls, entry)
 
+/*
+ * Iterator for resctrl_enabled_ctrl_iter_next()
+ * @legacy_ctrl:    Tracks control found in rdt_resoure::controls
+ * @emulating_ctrl: Tracks control found in legacy_ctrl::emulated_by
+ */
+struct resctrl_ctrl_iter {
+    struct resctrl_ctrl *legacy_ctrl;
+    struct resctrl_ctrl *emulating_ctrl;
+};
+
+struct resctrl_ctrl *
+resctrl_enabled_ctrl_iter_next(struct resctrl_ctrl_iter *iter, struct rdt_resource *r);
+
+#define for_each_enabled_ctrl(ctrl, r)					\
+	for (struct resctrl_ctrl_iter _iter = {					\
+	     .legacy_ctrl = list_first_entry_or_null(&(r)->controls,		\
+						     struct resctrl_ctrl, entry),\
+	     .emulating_ctrl = NULL						\
+	     };									\
+	     ((ctrl) = resctrl_enabled_ctrl_iter_next(&_iter, (r))) != NULL; )
+
 enum resctrl_res_level {
 	RDT_RESOURCE_L3,
 	RDT_RESOURCE_L2,
