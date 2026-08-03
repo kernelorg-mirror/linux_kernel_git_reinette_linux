@@ -54,8 +54,11 @@ bool rdt_alloc_capable;
 static void mba_wrmsr_intel(struct msr_param *m);
 static void cat_wrmsr(struct msr_param *m);
 static void mba_wrmsr_amd(struct msr_param *m);
+static void update_temporary_legacy_MB(struct msr_param *m);
 static void update_temporary_max(struct msr_param *m);
 static void update_temporary_min(struct msr_param *m);
+static void update_temporary_region_max(struct msr_param *m);
+static void update_temporary_region_min(struct msr_param *m);
 
 #define ctrl_init(id) LIST_HEAD_INIT(rdt_resources_all[id].r_resctrl.controls)
 #define mon_domain_init(id) LIST_HEAD_INIT(rdt_resources_all[id].r_resctrl.mon_domains)
@@ -185,6 +188,90 @@ static inline void cache_alloc_hsw_probe(void)
 	rdt_alloc_capable = true;
 }
 
+static u32 legacy_mba_to_fgmax(u32 legacy_val)
+{
+	/*
+	 * Legacy MBA control is percentage based. Pretend this fine
+	 * grained control used to back the legacy control has valid values
+	 * 0 to 200 and needs to provide an upper limit.
+	 */
+
+	return legacy_val * 2;
+}
+
+static u32 legacy_mba_to_fgmin(u32 legacy_val)
+{
+	/*
+	 * Legacy MBA control is percentage based. Pretend this fine
+	 * grained control used to back the legacy control has valid values
+	 * 0 to 200 and needs to provide a lower limit.
+	 */
+
+	return legacy_val * 2 - 5;
+}
+
+static __init bool
+__temporary_multiple_mba_emulated_controls(struct rdt_resource *r,
+					   struct resctrl_hw_ctrl *hw_ctrl)
+{
+	struct resctrl_hw_ctrl *em_hw_ctrl0, *em_hw_ctrl1;
+
+	em_hw_ctrl0 = kzalloc_obj(*em_hw_ctrl0);
+	if (!em_hw_ctrl0)
+		return false;
+
+	em_hw_ctrl1 = kzalloc_obj(*em_hw_ctrl1);
+	if (!em_hw_ctrl1) {
+		kfree(em_hw_ctrl0);
+		return false;
+	}
+
+	em_hw_ctrl0->r_ctrl.type = RESCTRL_CTRL_SCALAR;
+	em_hw_ctrl0->r_ctrl.name = RESCTRL_CTRL_NAME_REGION0_MIN;
+	INIT_LIST_HEAD(&em_hw_ctrl0->r_ctrl.domains);
+	INIT_LIST_HEAD(&em_hw_ctrl0->r_ctrl.emulated_by);
+
+	em_hw_ctrl0->r_ctrl.scalar.max = 200;
+	em_hw_ctrl0->r_ctrl.scalar.reset_val = 1;
+	em_hw_ctrl0->r_ctrl.scalar.min = 1;
+	em_hw_ctrl0->r_ctrl.scalar.gran = 1;
+	__set_bit(RESCTRL_SCALAR_FLAG_LINEAR, em_hw_ctrl0->r_ctrl.scalar.flags);
+
+	em_hw_ctrl0->r_ctrl.scalar.resolution = 200;
+	em_hw_ctrl0->r_ctrl.scalar.tolerance = 1;
+	em_hw_ctrl0->r_ctrl.scalar.scale = 1;
+	em_hw_ctrl0->r_ctrl.scalar.unit = RESCTRL_CTRL_UNIT_ALL;
+	em_hw_ctrl0->msr_base = 0;
+	em_hw_ctrl0->msr_update = update_temporary_region_min;
+	em_hw_ctrl0->emulate_val = legacy_mba_to_fgmin;
+
+	em_hw_ctrl1->r_ctrl.type = RESCTRL_CTRL_SCALAR;
+	em_hw_ctrl1->r_ctrl.name = RESCTRL_CTRL_NAME_REGION0_MAX;
+	INIT_LIST_HEAD(&em_hw_ctrl1->r_ctrl.domains);
+	INIT_LIST_HEAD(&em_hw_ctrl1->r_ctrl.emulated_by);
+
+	em_hw_ctrl1->r_ctrl.scalar.max = 200;
+	em_hw_ctrl1->r_ctrl.scalar.reset_val = 200;
+	em_hw_ctrl1->r_ctrl.scalar.min = 1;
+	em_hw_ctrl1->r_ctrl.scalar.gran = 1;
+	__set_bit(RESCTRL_SCALAR_FLAG_LINEAR, em_hw_ctrl1->r_ctrl.scalar.flags);
+
+	em_hw_ctrl1->r_ctrl.scalar.resolution = 200;
+	em_hw_ctrl1->r_ctrl.scalar.tolerance = 1;
+	em_hw_ctrl1->r_ctrl.scalar.scale = 1;
+	em_hw_ctrl1->r_ctrl.scalar.unit = RESCTRL_CTRL_UNIT_ALL;
+	em_hw_ctrl1->msr_base = 0;
+	em_hw_ctrl1->msr_update = update_temporary_region_max;
+	em_hw_ctrl1->emulate_val = legacy_mba_to_fgmax;
+
+	list_add(&em_hw_ctrl0->r_ctrl.entry, &hw_ctrl->r_ctrl.emulated_by);
+	list_add(&em_hw_ctrl1->r_ctrl.entry, &hw_ctrl->r_ctrl.emulated_by);
+
+	return true;
+
+
+}
+
 static __init bool __temporary_multiple_mba_intel_controls(struct rdt_resource *r,
 							   struct resctrl_hw_ctrl *hw_ctrl,
 							   u32 ecx, u32 max_delay,
@@ -210,9 +297,9 @@ static __init bool __temporary_multiple_mba_intel_controls(struct rdt_resource *
 
 	switch (name) {
 	case RESCTRL_CTRL_NAME_DEF:
-		hw_ctrl->msr_base = MSR_IA32_MBA_THRTL_BASE;
-		hw_ctrl->msr_update = mba_wrmsr_intel;
-		break;
+		hw_ctrl->msr_base = 0;
+		hw_ctrl->msr_update = NULL;
+		return __temporary_multiple_mba_emulated_controls(r, hw_ctrl);
 	case RESCTRL_CTRL_NAME_MIN:
 		hw_ctrl->msr_update = update_temporary_min;
 		break;
@@ -443,6 +530,33 @@ static void update_temporary_min(struct msr_param *m)
 		m->dom->hdr.id, hw_dom->ctrl_val[m->low]);
 }
 
+static void update_temporary_legacy_MB(struct msr_param *m)
+{
+	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(m->dom);
+
+	/* Any control properties available via m->ctrl */
+	pr_info("Update temporary LEGACY MB control on domain %d with user value %i\n",
+		m->dom->hdr.id, hw_dom->ctrl_val[m->low]);
+}
+
+static void update_temporary_region_max(struct msr_param *m)
+{
+	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(m->dom);
+
+	/* Any control properties available via m->ctrl */
+	pr_info("Update temporary REGION MAX control on domain %d with user value %i\n",
+		m->dom->hdr.id, hw_dom->ctrl_val[m->low]);
+}
+
+static void update_temporary_region_min(struct msr_param *m)
+{
+	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(m->dom);
+
+	/* Any control properties available via m->ctrl */
+	pr_info("Update temporary REGION MIN control on domain %d with user value %i\n",
+		m->dom->hdr.id, hw_dom->ctrl_val[m->low]);
+}
+
 static void mba_wrmsr_intel(struct msr_param *m)
 {
 	struct rdt_hw_ctrl_domain *hw_dom = resctrl_to_arch_ctrl_dom(m->dom);
@@ -467,6 +581,44 @@ static void cat_wrmsr(struct msr_param *m)
 
 	for (i = m->low; i < m->high; i++)
 		wrmsrq(hw_ctrl->msr_base + i, hw_dom->ctrl_val[i]);
+}
+
+int resctrl_arch_control_mode_set(struct rdt_resource *r,
+				  enum resctrl_ctrl_mode newmode)
+{
+	struct resctrl_ctrl *ctrl, *em_ctrl;
+	struct resctrl_hw_ctrl *hw_ctrl;
+
+	if (r->rid != RDT_RESOURCE_MBA)
+		return 0;
+
+	if (newmode == RESCTRL_CTRL_MODE_LEGACY) {
+		for_each_resource_ctrl(ctrl, r) {
+			if (ctrl->name == RESCTRL_CTRL_NAME_DEF) {
+				hw_ctrl = resctrl_to_arch_ctrl(ctrl);
+				hw_ctrl->msr_update = update_temporary_legacy_MB;
+				list_for_each_entry(em_ctrl, &ctrl->emulated_by, entry) {
+					hw_ctrl = resctrl_to_arch_ctrl(em_ctrl);
+					hw_ctrl->msr_update = NULL;
+				}
+			}
+		}
+	} else {
+		for_each_resource_ctrl(ctrl, r) {
+			if (ctrl->name == RESCTRL_CTRL_NAME_DEF) {
+				hw_ctrl = resctrl_to_arch_ctrl(ctrl);
+				hw_ctrl->msr_update = NULL;
+				list_for_each_entry(em_ctrl, &ctrl->emulated_by, entry) {
+					hw_ctrl = resctrl_to_arch_ctrl(em_ctrl);
+					if (em_ctrl->name == RESCTRL_CTRL_NAME_REGION0_MIN)
+						hw_ctrl->msr_update = update_temporary_region_min;
+					else
+						hw_ctrl->msr_update = update_temporary_region_max;
+				}
+			}
+		}
+	}
+	return 0;
 }
 
 u32 resctrl_arch_get_num_closid(struct rdt_resource *r)
