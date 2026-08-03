@@ -230,14 +230,32 @@ bool resctrl_arch_get_cdp_enabled(struct rdt_resource *r)
 	return hw_res->cdp_enabled;
 }
 
+static void reset_single_ctrl(struct msr_param *m)
+{
+	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(m->res);
+	struct resctrl_ctrl *ctrl = m->ctrl;
+	struct rdt_hw_ctrl_domain *hw_dom;
+	struct resctrl_hw_ctrl *hw_ctrl;
+	struct rdt_ctrl_domain *d;
+	int i;
+
+	hw_ctrl = resctrl_to_arch_ctrl(ctrl);
+	list_for_each_entry_rcu(d, &ctrl->domains, hdr.list, lockdep_is_cpus_held()) {
+		hw_dom = resctrl_to_arch_ctrl_dom(d);
+
+		for (i = 0; i < hw_res->num_closid; i++)
+			hw_dom->ctrl_val[i] = resctrl_get_default_ctrlval(ctrl);
+		m->dom = d;
+		if (hw_ctrl->msr_update)
+			smp_call_function_any(&d->hdr.cpu_mask, rdt_ctrl_update, m, 1);
+	}
+}
+
 void resctrl_arch_reset_all_ctrls(struct rdt_resource *r)
 {
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
-	struct rdt_hw_ctrl_domain *hw_dom;
+	struct resctrl_ctrl *ctrl, *em_ctrl;
 	struct msr_param msr_param;
-	struct resctrl_ctrl *ctrl;
-	struct rdt_ctrl_domain *d;
-	int i;
 
 	/* Walking ctrl->domains, ensure it can't race with cpuhp */
 	lockdep_assert_cpus_held();
@@ -249,17 +267,15 @@ void resctrl_arch_reset_all_ctrls(struct rdt_resource *r)
 	/*
 	 * Disable resource control for this resource by setting all
 	 * control values in all control domains to their reset value.
-	 * Pick one CPU from each domain to update the MSRs below.
 	 */
 	for_each_resource_ctrl(ctrl, r) {
 		msr_param.ctrl = ctrl;
-		list_for_each_entry_rcu(d, &ctrl->domains, hdr.list, lockdep_is_cpus_held()) {
-			hw_dom = resctrl_to_arch_ctrl_dom(d);
-
-			for (i = 0; i < hw_res->num_closid; i++)
-				hw_dom->ctrl_val[i] = resctrl_get_default_ctrlval(ctrl);
-			msr_param.dom = d;
-			smp_call_function_any(&d->hdr.cpu_mask, rdt_ctrl_update, &msr_param, 1);
+		reset_single_ctrl(&msr_param);
+		if (!list_empty(&ctrl->emulated_by)) {
+			list_for_each_entry(em_ctrl, &ctrl->emulated_by, entry) {
+				msr_param.ctrl = em_ctrl;
+				reset_single_ctrl(&msr_param);
+			}
 		}
 	}
 
