@@ -345,6 +345,12 @@ void resctrl_arch_set_closid_rmid(struct task_struct *tsk, u32 closid, u32 rmid)
 	}
 }
 
+void resctrl_arch_copy_closid_rmid(struct task_struct *dst,
+				   struct task_struct *src)
+{
+	mpam_copy_task_partid_pmg(dst, src);
+}
+
 bool resctrl_arch_match_closid(struct task_struct *tsk, u32 closid)
 {
 	u64 regval = mpam_get_regval(tsk);

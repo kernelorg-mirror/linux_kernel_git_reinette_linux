@@ -105,6 +105,7 @@
 #include <linux/stackprotector.h>
 #include <linux/user_events.h>
 #include <linux/iommu.h>
+#include <linux/resctrl.h>
 #include <linux/rseq.h>
 #include <uapi/linux/pidfd.h>
 #include <linux/pidfs.h>
@@ -2482,6 +2483,8 @@ __latent_entropy struct task_struct *copy_process(
 	}
 
 	klp_copy_process(p);
+
+	resctrl_copy_process(p);
 
 	sched_core_fork(p);
 

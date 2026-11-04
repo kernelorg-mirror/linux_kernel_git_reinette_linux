@@ -7,6 +7,8 @@
 #include <linux/list.h>
 #include <linux/pid.h>
 #include <linux/resctrl_types.h>
+#include <linux/sched.h>
+#include <linux/sched/task.h>
 
 #ifdef CONFIG_ARCH_HAS_CPU_RESCTRL
 #include <asm/resctrl.h>
@@ -728,6 +730,32 @@ extern unsigned int resctrl_rmid_realloc_limit;
 
 int resctrl_init(void);
 void resctrl_exit(void);
+
+#ifdef CONFIG_RESCTRL_FS
+/**
+ * resctrl_copy_process() - Give a new task the resource group of its parent.
+ * @child:	The new task, which is not yet on the task list.
+ *
+ * Call from copy_process() while tasklist_lock is held for write. Serialized
+ * against rdt_move_group_tasks() and __rdtgroup_move_task() that hold
+ * tasklist_lock for read.
+ *
+ * dup_task_struct() copies the parent's CLOSID and RMID into @child before
+ * @child is linked onto the task list. If the parent is moved out of a
+ * resource group that is being removed, that group's CLOSID and RMID are
+ * freed once the walk completes, leaving @child with stale assignments.
+ *
+ * Bring @child up to date with the parent.
+ */
+static inline void resctrl_copy_process(struct task_struct *child)
+{
+	lockdep_assert_held_write(&tasklist_lock);
+
+	resctrl_arch_copy_closid_rmid(child, current);
+}
+#else
+static inline void resctrl_copy_process(struct task_struct *child) { }
+#endif
 
 #ifdef CONFIG_RESCTRL_FS_PSEUDO_LOCK
 u64 resctrl_arch_get_prefetch_disable_bits(void);

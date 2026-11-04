@@ -153,6 +153,13 @@ static inline void resctrl_arch_set_closid_rmid(struct task_struct *tsk,
 	WRITE_ONCE(tsk->rmid, rmid);
 }
 
+static inline void resctrl_arch_copy_closid_rmid(struct task_struct *dst,
+						 struct task_struct *src)
+{
+	WRITE_ONCE(dst->closid, READ_ONCE(src->closid));
+	WRITE_ONCE(dst->rmid, READ_ONCE(src->rmid));
+}
+
 static inline bool resctrl_arch_match_closid(struct task_struct *tsk, u32 closid)
 {
 	return READ_ONCE(tsk->closid) == closid;

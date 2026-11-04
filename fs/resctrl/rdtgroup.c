@@ -657,12 +657,28 @@ static int __rdtgroup_move_task(struct task_struct *tsk,
 		return -EINVAL;
 	}
 
+	/*
+	 * Hold tasklist_lock for read so that resctrl_copy_process(), which
+	 * holds it for write, cannot read the CLOSID and the RMID of @tsk
+	 * while only one of the two has been updated.
+	 *
+	 * Hold tasklist_lock just for the @tsk update. A CPU running @tsk
+	 * keeps using the CLOSID and RMID that resctrl_arch_sched_in()
+	 * applied when @tsk was last scheduled in, so
+	 * update_task_closid_rmid() below has to interrupt that CPU for the
+	 * new resource group to take effect. Leave that until after
+	 * tasklist_lock has been dropped: a CPU waiting for tasklist_lock
+	 * for write waits with interrupts disabled, and @tsk's CPU is the
+	 * one that may be waiting, because @tsk may be forking.
+	 */
+	read_lock(&tasklist_lock);
 	if (rdtgrp->type == RDTMON_GROUP)
 		resctrl_arch_set_closid_rmid(tsk, rdtgrp->mon.parent->closid,
 					     rdtgrp->mon.rmid);
 	else
 		resctrl_arch_set_closid_rmid(tsk, rdtgrp->closid,
 					     rdtgrp->mon.rmid);
+	read_unlock(&tasklist_lock);
 
 	/*
 	 * Ensure the task's closid and rmid are written before determining if
@@ -2959,6 +2975,11 @@ static void schemata_list_destroy(void)
  * If @mask is not NULL the cpus on which moved tasks are running are set
  * in that mask so the update smp function call is restricted to affected
  * cpus.
+ *
+ * Tasks created while this walks the task list are handled by
+ * resctrl_copy_process(), which tasklist_lock serializes against this walk.
+ * A new task is either visible to the walk and moved with the others, or
+ * resctrl_copy_process() assigns it after the walk completes.
  */
 static void rdt_move_group_tasks(struct rdtgroup *from, struct rdtgroup *to,
 				 struct cpumask *mask)

@@ -63,6 +63,12 @@ static inline void mpam_set_task_partid_pmg(struct task_struct *tsk,
 	WRITE_ONCE(task_thread_info(tsk)->mpam_partid_pmg, regval);
 }
 
+static inline void mpam_copy_task_partid_pmg(struct task_struct *dst,
+					     struct task_struct *src)
+{
+	WRITE_ONCE(task_thread_info(dst)->mpam_partid_pmg, mpam_get_regval(src));
+}
+
 static inline void mpam_thread_switch(struct task_struct *tsk)
 {
 	u64 oldregval;
