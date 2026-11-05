@@ -5,9 +5,11 @@
 #ifdef CONFIG_X86_CPU_RESCTRL
 
 #include <linux/jump_label.h>
+#include <linux/lockdep.h>
 #include <linux/percpu.h>
 #include <linux/resctrl_types.h>
 #include <linux/sched.h>
+#include <linux/sched/task.h>
 
 #include <asm/msr.h>
 
@@ -149,6 +151,8 @@ static inline void resctrl_arch_set_cpu_default_closid_rmid(int cpu, u32 closid,
 static inline void resctrl_arch_set_closid_rmid(struct task_struct *tsk,
 						u32 closid, u32 rmid)
 {
+	lockdep_assert_held(&tasklist_lock);
+
 	WRITE_ONCE(tsk->closid, closid);
 	WRITE_ONCE(tsk->rmid, rmid);
 }
